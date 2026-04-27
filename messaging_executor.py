@@ -61,6 +61,7 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 LOOKBACK_DAYS = 7
 VAR_RE = re.compile(r"\{([a-z_]+)\}")
+DEFAULT_NOT_SET = "[not set]"
 
 # trigger_type → which booking date column anchors the fire time.
 ANCHOR_COLUMN = {
@@ -106,34 +107,62 @@ def resolve_guest_name(booking_guest_name, thread_title, platform):
 # ─────────────────────────────────────────────────────────────────
 
 def render(body, variables):
-    """Replace {var} tokens. Missing vars render as empty + WARN."""
-    missing = []
+    """Replace {var} tokens. Three outcomes per variable:
+      - mapped + non-None + non-empty → substitute the value
+      - mapped + None or empty       → DEFAULT_NOT_SET, key appended to `unresolved`
+      - not mapped at all            → DEFAULT_NOT_SET, key appended to `unknown`
+
+    Returns (rendered_body, unresolved_list, unknown_list).
+    """
+    unresolved = []
+    unknown = []
+
+    def is_blank(v):
+        if v is None:
+            return True
+        if isinstance(v, str) and not v.strip():
+            return True
+        return False
 
     def sub(m):
         key = m.group(1)
-        if key in variables and variables[key] is not None:
-            return str(variables[key])
-        missing.append(key)
-        return ""
+        if key not in variables:
+            unknown.append(key)
+            return DEFAULT_NOT_SET
+        v = variables[key]
+        if is_blank(v):
+            unresolved.append(key)
+            return DEFAULT_NOT_SET
+        return str(v)
 
     out = VAR_RE.sub(sub, body)
-    return out, missing
+    return out, unresolved, unknown
 
 
 def build_variables(booking, prop, details, guest_name):
+    """Pass-through resolution. Do NOT coalesce None/empty to '' — render()
+    distinguishes resolved-blank from missing and renders DEFAULT_NOT_SET
+    + logs INFO so post-hoc grep can surface gaps per property.
+
+    `checkin_time` / `checkout_time` carve-out is handled via the schema's
+    column default (DEFAULT '15:00:00' / '11:00:00'). When the row exists
+    those columns are virtually always populated; when truly NULL, render
+    treats them like any other unresolved variable.
+    """
+    d = details or {}
     return {
         "guest_name": guest_name,
-        "property_name": prop.get("name") or "",
-        "check_in": booking.get("check_in") or "",
-        "check_out": booking.get("check_out") or "",
-        "checkin_time": (details or {}).get("checkin_time") or "15:00",
-        "checkout_time": (details or {}).get("checkout_time") or "11:00",
-        "wifi_network": (details or {}).get("wifi_network") or "",
-        "wifi_password": (details or {}).get("wifi_password") or "",
-        "door_code": (details or {}).get("door_code") or "",
-        "parking_instructions": (details or {}).get("parking_instructions") or "",
-        "house_rules": (details or {}).get("house_rules") or "",
-        "special_instructions": (details or {}).get("special_instructions") or "",
+        "property_name": prop.get("name"),
+        "check_in": booking.get("check_in"),
+        "check_out": booking.get("check_out"),
+        "checkin_time": d.get("checkin_time"),
+        "checkout_time": d.get("checkout_time"),
+        "wifi_network": d.get("wifi_network"),
+        "wifi_password": d.get("wifi_password"),
+        "door_code": d.get("door_code"),
+        "parking_instructions": d.get("parking_instructions"),
+        "house_rules": d.get("house_rules"),
+        "special_instructions": d.get("special_instructions"),
     }
 
 
@@ -274,9 +303,17 @@ def run():
 
                 guest = resolve_guest_name(booking.get("guest_name"), thread_title, booking.get("platform"))
                 variables = build_variables(booking, prop, details, guest)
-                rendered, missing = render(tmpl["body"], variables)
-                if missing:
-                    log.warning("template_id=%s missing vars: %s", tmpl["id"], missing)
+                rendered, unresolved, unknown = render(tmpl["body"], variables)
+                if unresolved:
+                    log.info(
+                        "template_id=%s unresolved_vars=%s rendered as %s",
+                        tmpl["id"], unresolved, DEFAULT_NOT_SET,
+                    )
+                if unknown:
+                    log.warning(
+                        "template_id=%s unknown_vars=%s (template references vars not in resolver)",
+                        tmpl["id"], unknown,
+                    )
 
                 # 6. Insert draft message.
                 msg = sb.table("messages").insert({
@@ -304,9 +341,9 @@ def run():
                 fired += 1
                 log.info(
                     "fired template_id=%s booking_id=%s firing_id=%s draft_message_id=%s "
-                    "target_fire_at=%s rendered_length=%d",
+                    "target_fire_at=%s rendered_length=%d unresolved_vars=%s",
                     tmpl["id"], booking["id"], firing_id, draft_message_id,
-                    fire_at.isoformat(), len(rendered),
+                    fire_at.isoformat(), len(rendered), unresolved,
                 )
 
             except Exception as exc:
