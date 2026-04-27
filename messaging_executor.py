@@ -284,7 +284,9 @@ def run():
                     "property_id": tmpl["property_id"],
                     "booking_id": booking["id"],
                     "platform": booking.get("platform") or "unknown",
-                    "direction": "outgoing",
+                    # Existing direction CHECK constraint allows only
+                    # 'inbound' | 'outbound'. Match it.
+                    "direction": "outbound",
                     "sender": "property",
                     "sender_name": "Host",
                     "content": rendered,
