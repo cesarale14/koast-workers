@@ -1,0 +1,14 @@
+[Unit]
+Description=Koast Reviews Sync Worker
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/staycommand-workers
+ExecStart=/usr/bin/python3 /home/ubuntu/staycommand-workers/reviews_sync.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

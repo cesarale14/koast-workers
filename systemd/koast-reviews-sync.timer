@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Koast reviews sync every 20 minutes
+
+[Timer]
+# 20-min cadence with 5-min jitter to stagger off booking_sync's
+# :00/:15/:30/:45 fires and the daily 10:00 UTC pricing validator.
+OnBootSec=2min
+OnUnitActiveSec=20min
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

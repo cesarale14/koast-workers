@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Koast messaging template executor hourly (Session 8a)
+Requires=koast-messaging-executor.service
+
+[Timer]
+# Hourly. checkin/checkout precision is fine at the hour; daily would
+# miss same-day check-in templates with small negative offsets.
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Koast — messages sync every 60min (webhook reconciliation)
+Requires=koast-messages-sync.service
+
+[Timer]
+# Slice 1: 60-min cadence. Webhooks carry realtime; this is the
+# fallback for missed deliveries. Reviews uses 20-min because polling
+# is its primary path; messaging doesn't need that.
+OnBootSec=2min
+OnUnitActiveSec=60min
+RandomizedDelaySec=300
+Persistent=true
+Unit=koast-messages-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+# Secrets — never commit.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Logs (canonical log path is /var/log/staycommand/*.log; this guards
+# against any local copies that might land here by accident).
+*.log
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+*.swp

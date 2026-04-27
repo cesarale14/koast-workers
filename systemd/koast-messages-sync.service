@@ -1,0 +1,13 @@
+[Unit]
+Description=Koast — Channex messages sync (60-min webhook fallback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/staycommand-workers
+EnvironmentFile=/home/ubuntu/staycommand-workers/.env
+ExecStart=/usr/bin/python3 /home/ubuntu/staycommand-workers/messages_sync.py
+StandardOutput=append:/var/log/staycommand/messages.log
+StandardError=append:/var/log/staycommand/messages.log

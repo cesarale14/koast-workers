@@ -1,0 +1,9 @@
+# Direct dependencies for Koast workers.
+# Curated from `pip freeze` against actual imports across all .py
+# files. Stdlib imports (datetime, json, logging, os, re, sys, time,
+# argparse, dataclasses, typing) are intentionally absent.
+
+psycopg2-binary
+python-dotenv
+supabase
+httpx
