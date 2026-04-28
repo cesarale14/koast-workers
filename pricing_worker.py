@@ -15,7 +15,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [pricing] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/staycommand/pricing.log"),
+        logging.FileHandler("/var/log/koast/pricing.log"),
         logging.StreamHandler(sys.stdout),
     ],
 )
@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-API_URL = os.environ.get("STAYCOMMAND_API_URL", "https://staycommand.vercel.app")
+API_URL = os.environ.get("KOAST_API_URL", "https://app.koasthq.com")
 SERVICE_HEADERS = {"x-service-key": SUPABASE_KEY}
 
 

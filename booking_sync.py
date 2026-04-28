@@ -22,7 +22,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [bookings] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/staycommand/bookings.log"),
+        logging.FileHandler("/var/log/koast/bookings.log"),
         logging.StreamHandler(sys.stdout),
     ],
 )
@@ -416,7 +416,7 @@ def sync_ical_feeds():
 
         for feed in feeds:
             try:
-                resp = client.get(feed["feed_url"], headers={"User-Agent": "StayCommand/1.0"})
+                resp = client.get(feed["feed_url"], headers={"User-Agent": "Koast/1.0"})
                 if resp.status_code != 200:
                     log.warning(f"  {feed['name']} ({feed['platform']}): HTTP {resp.status_code}")
                     cur.execute("UPDATE ical_feeds SET last_error = %s WHERE id = %s",

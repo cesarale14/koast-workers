@@ -25,7 +25,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [reviews] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/staycommand/reviews.log"),
+        logging.FileHandler("/var/log/koast/reviews.log"),
         logging.StreamHandler(sys.stdout),
     ],
 )

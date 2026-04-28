@@ -33,7 +33,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [messages] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/staycommand/messages.log"),
+        logging.FileHandler("/var/log/koast/messages.log"),
         logging.StreamHandler(sys.stdout),
     ],
 )

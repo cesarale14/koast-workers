@@ -1,8 +1,8 @@
 #!/bin/bash
-echo "=== StayCommand Workers Status ==="
+echo "=== Koast Workers Status ==="
 echo ""
 
-for svc in staycommand-pricing staycommand-market staycommand-bookings; do
+for svc in koast-pricing koast-market koast-bookings; do
     timer="${svc}.timer"
     echo "--- ${svc} ---"
 
@@ -28,7 +28,7 @@ for svc in staycommand-pricing staycommand-market staycommand-bookings; do
 done
 
 echo "=== Log files ==="
-for f in /var/log/staycommand/*.log; do
+for f in /var/log/koast/*.log; do
     if [ -f "$f" ]; then
         lines=$(wc -l < "$f")
         size=$(du -h "$f" | cut -f1)

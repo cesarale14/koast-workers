@@ -42,7 +42,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [pricing-validator] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/staycommand/pricing-validator.log"),
+        logging.FileHandler("/var/log/koast/pricing-validator.log"),
         logging.StreamHandler(sys.stdout),
     ],
 )
@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 DATABASE_URL = os.environ["DATABASE_URL"]
 CHANNEX_URL = os.environ.get("CHANNEX_API_URL", "https://app.channex.io/api/v1")
 CHANNEX_KEY = os.environ["CHANNEX_API_KEY"]
-API_URL = os.environ.get("STAYCOMMAND_API_URL", "https://staycommand.vercel.app")
+API_URL = os.environ.get("KOAST_API_URL", "https://app.koasthq.com")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 FORECAST_DAYS = 60

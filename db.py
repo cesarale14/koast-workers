@@ -1,4 +1,4 @@
-"""Direct PostgreSQL database access for StayCommand workers."""
+"""Direct PostgreSQL database access for Koast workers."""
 
 import os
 import psycopg2

@@ -6,11 +6,11 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=ubuntu
-WorkingDirectory=/home/ubuntu/staycommand-workers
-EnvironmentFile=/home/ubuntu/staycommand-workers/.env
-ExecStart=/home/ubuntu/staycommand-workers/.venv/bin/python /home/ubuntu/staycommand-workers/messaging_executor.py
-StandardOutput=append:/var/log/staycommand/messaging-executor.log
-StandardError=append:/var/log/staycommand/messaging-executor.log
+WorkingDirectory=/home/ubuntu/koast-workers
+EnvironmentFile=/home/ubuntu/koast-workers/.env
+ExecStart=/home/ubuntu/koast-workers/.venv/bin/python /home/ubuntu/koast-workers/messaging_executor.py
+StandardOutput=append:/var/log/koast/messaging-executor.log
+StandardError=append:/var/log/koast/messaging-executor.log
 
 [Install]
 WantedBy=multi-user.target

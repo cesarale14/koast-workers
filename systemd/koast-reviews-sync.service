@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=oneshot
 User=ubuntu
-WorkingDirectory=/home/ubuntu/staycommand-workers
-ExecStart=/usr/bin/python3 /home/ubuntu/staycommand-workers/reviews_sync.py
+WorkingDirectory=/home/ubuntu/koast-workers
+ExecStart=/usr/bin/python3 /home/ubuntu/koast-workers/reviews_sync.py
 StandardOutput=journal
 StandardError=journal
 

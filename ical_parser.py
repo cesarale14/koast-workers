@@ -1,4 +1,4 @@
-"""Simple iCal (.ics) parser for StayCommand workers."""
+"""Simple iCal (.ics) parser for Koast workers."""
 
 import re
 from datetime import datetime

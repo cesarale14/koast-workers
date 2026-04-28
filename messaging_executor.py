@@ -50,7 +50,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [executor] %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/staycommand/messaging-executor.log"),
+        logging.FileHandler("/var/log/koast/messaging-executor.log"),
         logging.StreamHandler(sys.stdout),
     ],
 )
