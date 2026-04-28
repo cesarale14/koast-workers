@@ -485,13 +485,20 @@ def sync_ical_feeds():
                 conn.commit()
 
                 # --- Cancel rows whose UID disappeared from the feed ---
-                # Applies to both iCal-only rows and rows that were promoted
-                # to include a Channex booking id. If they're gone from the
-                # feed, the OTA has cancelled them and we need to unblock
-                # the dates across channels.
+                # Restricted to source='ical' rows. Channex-direct bookings
+                # carry their HM-code in `platform_booking_id` too, but
+                # post-OAuth Airbnb stops including OAuth-connected bookings
+                # in its iCal feed export — without the source filter, every
+                # iCal tick re-cancelled every Channex-direct booking
+                # because its HM-code wasn't in `feed_uids`. (Diagnosed
+                # 2026-04-28; Margot Castillo's HM9JXBCTHB was the worked
+                # example: Channex revision_poll + booking_new webhook
+                # stamped status='confirmed', then the next iCal tick 5 min
+                # later flipped it to cancelled.)
                 cur.execute(
                     "SELECT id, platform_booking_id, check_in, check_out, channex_booking_id "
                     "FROM bookings WHERE property_id = %s AND platform = %s "
+                    "AND source = 'ical' "
                     "AND status = 'confirmed' AND platform_booking_id IS NOT NULL",
                     (feed["property_id"], feed["platform"])
                 )
