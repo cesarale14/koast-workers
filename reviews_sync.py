@@ -113,6 +113,12 @@ def build_row(rv, property_id, local_booking_id):
     private_text = raw.get("private_feedback")
     rating5 = to_five_star(rv.get("overall_score"))
     incoming_at = rv.get("received_at") or rv.get("inserted_at")
+    # Session 6.7 — Channex /reviews carries `attributes.is_hidden`.
+    # True for pre-disclosure reviews (14-day mutual-disclosure window
+    # open: rating=0 sentinel, content=null). Mirrors
+    # src/lib/reviews/sync.ts. Required to gate is_low_rating so the
+    # rating=0 sentinel doesn't trip the "Bad review" tag.
+    is_hidden = rv.get("is_hidden") is True
     return {
         "channex_review_id": rv.get("id"),
         "booking_id": local_booking_id,
@@ -126,7 +132,8 @@ def build_row(rv, property_id, local_booking_id):
         "incoming_date": incoming_at,
         "subratings": rv.get("scores"),
         "expired_at": rv.get("expired_at"),
-    }, rating5
+        "is_hidden": is_hidden,
+    }, rating5, is_hidden
 
 
 def sync_property(supabase, client, prop):
@@ -195,13 +202,15 @@ def sync_property(supabase, client, prop):
                 f"ota_reservation_id={ota_res}"
             )
 
-        row, rating5 = build_row(rv, pid, local_booking_id)
+        row, rating5, is_hidden = build_row(rv, pid, local_booking_id)
         is_new = rid not in existing_set
 
         # RDX-4 — algorithmic low-rating flag, written every iteration.
         # is_bad_review is no longer touched by sync; host marks live on
         # is_flagged_by_host. Mirrors src/lib/reviews/sync.ts.
-        row["is_low_rating"] = rating5 is not None and rating5 < 4
+        # Session 6.7 — gate on is_hidden so rating=0 pre-disclosure
+        # reviews don't trip the "Bad review" tag.
+        row["is_low_rating"] = (not is_hidden) and rating5 is not None and rating5 < 4
         if is_new:
             row["status"] = "published" if rv.get("is_replied") else "pending"
 
