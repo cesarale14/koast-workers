@@ -485,20 +485,34 @@ def sync_ical_feeds():
                 conn.commit()
 
                 # --- Cancel rows whose UID disappeared from the feed ---
-                # Restricted to source='ical' rows. Channex-direct bookings
-                # carry their HM-code in `platform_booking_id` too, but
-                # post-OAuth Airbnb stops including OAuth-connected bookings
-                # in its iCal feed export — without the source filter, every
-                # iCal tick re-cancelled every Channex-direct booking
-                # because its HM-code wasn't in `feed_uids`. (Diagnosed
-                # 2026-04-28; Margot Castillo's HM9JXBCTHB was the worked
-                # example: Channex revision_poll + booking_new webhook
-                # stamped status='confirmed', then the next iCal tick 5 min
-                # later flipped it to cancelled.)
+                # Two guards prevent over-cancellation:
+                #   1. source='ical' — Channex-canonical rows
+                #      (source='channex') are excluded; their truth lives
+                #      in /bookings, not iCal. (Diagnosed 2026-04-28;
+                #      Margot Castillo HM9JXBCTHB was the worked example:
+                #      Channex revision_poll + booking_new webhook stamped
+                #      status='confirmed', then the next iCal tick 5 min
+                #      later flipped it to cancelled. Fix A added the
+                #      source filter.)
+                #   2. channex_booking_id IS NULL — defensive second filter
+                #      catching pre-canonical-helper rows where source='ical'
+                #      but the booking is also tracked in Channex (legacy
+                #      insert lineage). source='ical' alone is insufficient
+                #      because pre-2026-04-25 rows were inserted via paths
+                #      that defaulted source to 'ical' even when Channex
+                #      was tracking them. (Diagnosed 2026-04-29 in 6.8a;
+                #      Briana/Nadia/Kathy/Venus were the worked examples.)
+                #
+                # Together: only iCal-only-managed rows are eligible for
+                # cancellation. post-OAuth Airbnb stops including OAuth-
+                # connected bookings in its iCal export, so without these
+                # guards every iCal tick would re-cancel every Channex-
+                # tracked booking whose HM-code wasn't in feed_uids.
                 cur.execute(
                     "SELECT id, platform_booking_id, check_in, check_out, channex_booking_id "
                     "FROM bookings WHERE property_id = %s AND platform = %s "
                     "AND source = 'ical' "
+                    "AND channex_booking_id IS NULL "
                     "AND status = 'confirmed' AND platform_booking_id IS NOT NULL",
                     (feed["property_id"], feed["platform"])
                 )
