@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Koast pricing-performance reconciler nightly at 02:30 UTC
+
+[Timer]
+# 02:30 UTC — runs AFTER market_sync (daily 02:00) and BEFORE the
+# pricing validator (10:00). Catches webhook delivery failures and
+# iCal-sourced bookings that never triggered booking_new.
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

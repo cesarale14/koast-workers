@@ -1,0 +1,14 @@
+[Unit]
+Description=Koast Booking Sync Worker
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/koast-workers
+ExecStart=/usr/bin/python3 /home/ubuntu/koast-workers/booking_sync.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

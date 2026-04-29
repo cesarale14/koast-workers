@@ -1,0 +1,14 @@
+[Unit]
+Description=Koast pricing-performance reconciler (nightly gap-catcher)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/koast-workers
+ExecStart=/usr/bin/python3 /home/ubuntu/koast-workers/pricing_performance_reconciler.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
