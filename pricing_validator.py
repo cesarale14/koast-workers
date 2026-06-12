@@ -113,6 +113,25 @@ def trigger_pricing_calculate(client: httpx.Client, property_id: str):
     return resp.json()
 
 
+def trigger_detect_opportunities(client: httpx.Client, property_id: str):
+    """
+    POST to /api/pricing/detect-opportunities/{id} (P4.4) so the gap-night +
+    stale-weekend detectors run against the recommendations just written above
+    and emit adjust_price PROPOSALS (pending on Koast-suggests + the bell). These
+    are non-executable until the OTA flag flips at A4 — read-then-propose, no OTA
+    writes. Same service-key auth as the calculate trigger. Returns the response.
+    """
+    url = f"{API_URL}/api/pricing/detect-opportunities/{property_id}"
+    resp = client.post(
+        url,
+        headers={"Content-Type": "application/json", "x-service-key": SERVICE_KEY},
+        json={},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def read_engine_output(cur, property_id: str, date_from: str, date_to: str):
     """
     After the pricing engine has run, read back the suggested_rate +
@@ -293,6 +312,21 @@ def main():
                     continue
 
                 summarize(cur, prop_id, prop_name)
+
+                # P4.4 — detect gap-night + stale-weekend opportunities off the
+                # freshly-written recommendations and emit adjust_price proposals
+                # (pending; non-executable until the OTA flag flips at A4). Wrapped
+                # so a detector failure never breaks the validator run.
+                try:
+                    det = trigger_detect_opportunities(client, prop_id)
+                    log.info(
+                        f"    opportunities: detected {det.get('detected')}, "
+                        f"created {len(det.get('created', []))}, "
+                        f"skipped(already-proposed) {det.get('skippedAlreadyProposed')}, "
+                        f"capped {det.get('capped')}"
+                    )
+                except Exception as e:
+                    log.error(f"    opportunity detection failed: {e}")
 
                 if i < len(targets) - 1:
                     time.sleep(3)
