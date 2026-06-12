@@ -132,6 +132,24 @@ def trigger_detect_opportunities(client: httpx.Client, property_id: str):
     return resp.json()
 
 
+def trigger_channel_health_detect(client: httpx.Client):
+    """
+    POST to /api/health/channels/detect (P6.4) — a single global sweep of every
+    host's channels that rings a channel_disconnect host bell for any channel
+    that is down (transition-deduped so a persistently-down channel doesn't
+    re-ring daily). Same service-key auth. Returns the response.
+    """
+    url = f"{API_URL}/api/health/channels/detect"
+    resp = client.post(
+        url,
+        headers={"Content-Type": "application/json", "x-service-key": SERVICE_KEY},
+        json={},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def read_engine_output(cur, property_id: str, date_from: str, date_to: str):
     """
     After the pricing engine has run, read back the suggested_rate +
@@ -330,6 +348,18 @@ def main():
 
                 if i < len(targets) - 1:
                     time.sleep(3)
+
+    # P6.4 — one global channel-health sweep after the per-property work. Wrapped
+    # so a detector failure never breaks the validator run.
+    try:
+        ch = trigger_channel_health_detect(client)
+        log.info(
+            f"channel-health: checked {ch.get('checked')}, "
+            f"disconnected {ch.get('disconnected')}, "
+            f"emitted {ch.get('emitted')}, deduped {ch.get('deduped')}"
+        )
+    except Exception as e:
+        log.error(f"channel-health detect failed: {e}")
 
     client.close()
     elapsed = (datetime.utcnow() - run_started).total_seconds()
