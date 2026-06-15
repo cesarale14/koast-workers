@@ -29,6 +29,7 @@ import os
 import sys
 import time
 import logging
+import argparse
 from datetime import datetime, timedelta
 
 import httpx
@@ -170,6 +171,29 @@ def read_engine_output(cur, property_id: str, date_from: str, date_to: str):
     return {row["date"]: row for row in cur.fetchall()}
 
 
+def read_current_baseline(cur, property_id: str, date_from: str, date_to: str):
+    """
+    Current-rate baseline from the calendar_rates BASE layer (channel_code IS
+    NULL): applied_rate, else base_rate. This is the current_rate the engine's
+    suggestion is compared against when a property has no live Channex rate
+    (iCal / BDC-only / not-yet-connected hosts). The base layer is seeded at
+    onboarding by bootstrapNewProperty when the host supplies a base nightly
+    rate. Returns { "YYYY-MM-DD": rate_float }.
+    """
+    cur.execute(
+        """
+        SELECT date::text AS date, COALESCE(applied_rate, base_rate) AS rate
+        FROM calendar_rates
+        WHERE property_id = %s
+          AND channel_code IS NULL
+          AND date >= %s AND date <= %s
+          AND COALESCE(applied_rate, base_rate) IS NOT NULL
+        """,
+        (property_id, date_from, date_to),
+    )
+    return {row["date"]: float(row["rate"]) for row in cur.fetchall()}
+
+
 def log_recommendations(cur, property_id: str,
                         engine_rows: dict, live_rates: dict) -> int:
     """
@@ -250,7 +274,7 @@ def summarize(cur, property_id: str, property_name: str):
     )
 
 
-def main():
+def main(args):
     log.info("=== Pricing validator starting ===")
     run_started = datetime.utcnow()
 
@@ -265,23 +289,62 @@ def main():
 
     with get_db() as conn:
         with conn.cursor() as cur:
-            # Find every property that has both:
-            #   - a Channex property id
-            #   - an Airbnb (ABB) property_channels row with rate_plan_id in settings
-            cur.execute(
+            # Property set. DEFAULT (no --all-properties): only Airbnb-Channex
+            # connected properties, compared against their live Airbnb rate —
+            # the original observability loop, behavior unchanged. --all-properties
+            # broadens to EVERY property (iCal / BDC-only / not-yet-connected),
+            # using the calendar_rates base layer as the current-rate baseline
+            # when there's no live Channex rate. The default keeps the daily
+            # timer unchanged until the ExecStart deliberately adds the flag;
+            # --property scopes to a single id for controlled runs.
+            params = []
+            if args.all_properties:
+                # No top-level WHERE — the rate_plan_id is a correlated subquery
+                # (its own WHERE doesn't count for the --property clause below).
+                query = """
+                    SELECT p.id, p.name, p.channex_property_id,
+                           (SELECT pc.settings->>'rate_plan_id'
+                              FROM property_channels pc
+                             WHERE pc.property_id = p.id
+                               AND pc.channel_code = 'ABB'
+                               AND pc.settings->>'rate_plan_id' IS NOT NULL
+                             LIMIT 1) AS airbnb_rate_plan_id
+                    FROM properties p
                 """
-                SELECT p.id, p.name, p.channex_property_id,
-                       pc.settings->>'rate_plan_id' AS airbnb_rate_plan_id
-                FROM properties p
-                JOIN property_channels pc ON pc.property_id = p.id
-                WHERE p.channex_property_id IS NOT NULL
-                  AND pc.channel_code = 'ABB'
-                  AND pc.settings->>'rate_plan_id' IS NOT NULL
-                ORDER BY p.name
+                has_where = False
+            else:
+                query = """
+                    SELECT p.id, p.name, p.channex_property_id,
+                           pc.settings->>'rate_plan_id' AS airbnb_rate_plan_id
+                    FROM properties p
+                    JOIN property_channels pc ON pc.property_id = p.id
+                    WHERE p.channex_property_id IS NOT NULL
+                      AND pc.channel_code = 'ABB'
+                      AND pc.settings->>'rate_plan_id' IS NOT NULL
                 """
-            )
+                has_where = True
+            if args.property:
+                query += (" AND" if has_where else " WHERE") + " p.id = %s"
+                params.append(args.property)
+            query += " ORDER BY p.name"
+            cur.execute(query, params)
             targets = cur.fetchall()
-            log.info(f"Tracking {len(targets)} properties")
+
+            mode = "ALL properties" if args.all_properties else "Airbnb-Channex only"
+            scope = f", scoped to {args.property}" if args.property else ""
+            log.info(f"Tracking {len(targets)} properties ({mode}{scope})")
+
+            if args.dry_run:
+                for t in targets:
+                    has_live = bool(t["channex_property_id"] and t["airbnb_rate_plan_id"])
+                    log.info(
+                        f"  DRY-RUN target: {t['name']} ({t['id']}) "
+                        f"current_rate_source="
+                        f"{'channex-abb-live' if has_live else 'calendar_rates baseline'}"
+                    )
+                log.info("DRY-RUN: no engine, no writes, no proposals — exiting")
+                client.close()
+                return
 
             if not targets:
                 log.info("No eligible properties — exiting")
@@ -308,20 +371,43 @@ def main():
                     log.error(f"    engine call failed: {e}")
                     continue
 
-                try:
-                    log.info(f"  Fetching live Airbnb rates from rate plan {rate_plan_id[:8]}...")
-                    live_rates = fetch_airbnb_live_rates(
-                        client, channex_prop_id, rate_plan_id, date_from, date_to
-                    )
-                    log.info(f"    got {len(live_rates)} live rates from Channex")
-                except Exception as e:
-                    log.error(f"    Channex fetch failed: {e}")
-                    continue
+                # Live Airbnb rates ONLY for Airbnb-Channex-connected properties.
+                # Others (iCal / BDC-only) use the calendar_rates baseline. A
+                # Channex fetch failure also falls back to the baseline rather
+                # than dropping the property.
+                live_rates = {}
+                if channex_prop_id and rate_plan_id:
+                    try:
+                        log.info(f"  Fetching live Airbnb rates from rate plan {rate_plan_id[:8]}...")
+                        live_rates = fetch_airbnb_live_rates(
+                            client, channex_prop_id, rate_plan_id, date_from, date_to
+                        )
+                        log.info(f"    got {len(live_rates)} live rates from Channex")
+                    except Exception as e:
+                        log.error(f"    Channex fetch failed (using calendar baseline): {e}")
+                        live_rates = {}
 
                 try:
                     engine_rows = read_engine_output(cur, prop_id, date_from, date_to)
-                    log.info(f"    engine wrote {len(engine_rows)} suggested rates to calendar_rates")
-                    inserted = log_recommendations(cur, prop_id, engine_rows, live_rates)
+                    baseline = read_current_baseline(cur, prop_id, date_from, date_to)
+                    # current_rate per engine date: the live Channex rate if we
+                    # have one, else the calendar_rates base-layer rate. Dates
+                    # with neither are skipped (no comparison possible) — so a
+                    # property with no live rate AND no seeded base rate produces
+                    # zero recs, by design (nothing to compare against).
+                    current_rates = {}
+                    for d in engine_rows:
+                        cr = live_rates.get(d)
+                        if cr is None:
+                            cr = baseline.get(d)
+                        if cr is not None:
+                            current_rates[d] = cr
+                    log.info(
+                        f"    engine wrote {len(engine_rows)} suggested rates; "
+                        f"current-rate coverage {len(current_rates)} "
+                        f"(live={len(live_rates)}, baseline={len(baseline)})"
+                    )
+                    inserted = log_recommendations(cur, prop_id, engine_rows, current_rates)
                     conn.commit()
                     log.info(f"    logged {inserted} pricing_recommendations rows")
                 except Exception as e:
@@ -335,36 +421,73 @@ def main():
                 # freshly-written recommendations and emit adjust_price proposals
                 # (pending; non-executable until the OTA flag flips at A4). Wrapped
                 # so a detector failure never breaks the validator run.
-                try:
-                    det = trigger_detect_opportunities(client, prop_id)
-                    log.info(
-                        f"    opportunities: detected {det.get('detected')}, "
-                        f"created {len(det.get('created', []))}, "
-                        f"skipped(already-proposed) {det.get('skippedAlreadyProposed')}, "
-                        f"capped {det.get('capped')}"
-                    )
-                except Exception as e:
-                    log.error(f"    opportunity detection failed: {e}")
+                # --skip-detector holds this for controlled runs (no proposals,
+                # no bells) so a scoped run can be reviewed before it fires.
+                if args.skip_detector:
+                    log.info("    detector skipped (--skip-detector)")
+                else:
+                    try:
+                        det = trigger_detect_opportunities(client, prop_id)
+                        log.info(
+                            f"    opportunities: detected {det.get('detected')}, "
+                            f"created {len(det.get('created', []))}, "
+                            f"skipped(already-proposed) {det.get('skippedAlreadyProposed')}, "
+                            f"capped {det.get('capped')}"
+                        )
+                    except Exception as e:
+                        log.error(f"    opportunity detection failed: {e}")
 
                 if i < len(targets) - 1:
                     time.sleep(3)
 
     # P6.4 — one global channel-health sweep after the per-property work. Wrapped
-    # so a detector failure never breaks the validator run.
-    try:
-        ch = trigger_channel_health_detect(client)
-        log.info(
-            f"channel-health: checked {ch.get('checked')}, "
-            f"disconnected {ch.get('disconnected')}, "
-            f"emitted {ch.get('emitted')}, deduped {ch.get('deduped')}"
-        )
-    except Exception as e:
-        log.error(f"channel-health detect failed: {e}")
+    # so a detector failure never breaks the validator run. Also held under
+    # --skip-detector (it emits disconnect proposals/bells too).
+    if args.skip_detector:
+        log.info("channel-health sweep skipped (--skip-detector)")
+    else:
+        try:
+            ch = trigger_channel_health_detect(client)
+            log.info(
+                f"channel-health: checked {ch.get('checked')}, "
+                f"disconnected {ch.get('disconnected')}, "
+                f"emitted {ch.get('emitted')}, deduped {ch.get('deduped')}"
+            )
+        except Exception as e:
+            log.error(f"channel-health detect failed: {e}")
 
     client.close()
     elapsed = (datetime.utcnow() - run_started).total_seconds()
     log.info(f"=== Pricing validator complete in {elapsed:.1f}s ===")
 
 
+def parse_args():
+    p = argparse.ArgumentParser(description="Koast pricing engine validator")
+    p.add_argument(
+        "--all-properties",
+        action="store_true",
+        help="cover EVERY property (calendar_rates base-layer baseline when no "
+        "live Channex rate), not just Airbnb-Channex-connected ones. Off by "
+        "default so the daily timer is unchanged until the ExecStart adds it.",
+    )
+    p.add_argument(
+        "--property",
+        default=None,
+        help="scope the run to a single property id (controlled / acceptance runs)",
+    )
+    p.add_argument(
+        "--skip-detector",
+        action="store_true",
+        help="do NOT emit opportunity or channel-health proposals (no bells) — "
+        "for a scoped run you want to review before anything fires",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="list the resolved target properties and exit (no engine, no writes)",
+    )
+    return p.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    main(parse_args())
